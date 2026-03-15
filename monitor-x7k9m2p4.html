@@ -314,6 +314,27 @@
       </div>
     </div>
 
+    <!-- Add Instances -->
+    <div class="config-section">
+      <h2>Adicionar Instancias</h2>
+      <div class="config-row">
+        <div class="config-group">
+          <label>Telefone</label>
+          <input type="text" id="addPhone" placeholder="5571999999999" />
+        </div>
+        <div class="config-group" style="flex:2">
+          <label>Token da instancia</label>
+          <input type="text" id="addToken" placeholder="Token da instancia na uazapi" />
+        </div>
+        <button class="btn btn-outline" onclick="addInstance()">Adicionar</button>
+      </div>
+      <div style="margin-top:12px">
+        <label style="display:block;font-size:11px;font-weight:500;color:#8a9bb5;margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px">Adicionar em lote (uma por linha: telefone,token)</label>
+        <textarea id="bulkAdd" rows="3" placeholder="5571999999999,token123&#10;5571988888888,token456" style="width:100%;padding:8px 12px;background:#081222;border:1px solid #1a3a6e;border-radius:8px;color:#e0e6ed;font-size:12px;font-family:Consolas,monospace;resize:vertical"></textarea>
+        <button class="btn btn-outline" onclick="bulkAddInstances()" style="margin-top:8px">Importar em Lote</button>
+      </div>
+    </div>
+
     <!-- Alert Config -->
     <div class="config-section">
       <h2>Configuracao de Alertas</h2>
@@ -377,6 +398,59 @@
     instances.forEach(inst => {
       previousStatuses[inst.id] = inst.status;
     });
+
+    // ---- Add Instances ----
+    function addInstance() {
+      const phone = document.getElementById('addPhone').value.trim();
+      const token = document.getElementById('addToken').value.trim();
+      if (!phone || !token) { toast('Preencha telefone e token', 'error'); return; }
+      if (instances.find(i => i.phone === phone)) { toast('Instancia ja cadastrada', 'error'); return; }
+
+      instances.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        phone, token, status: 'unknown', addedAt: new Date().toISOString()
+      });
+      localStorage.setItem('wpp_instances', JSON.stringify(instances));
+      previousStatuses[instances[instances.length - 1].id] = 'unknown';
+
+      document.getElementById('addPhone').value = '';
+      document.getElementById('addToken').value = '';
+      toast(`Instancia ${phone} adicionada`, 'success');
+      addLogEntry(`Instancia ${phone} adicionada ao monitor`);
+      loadAlertConfig();
+      renderMonitor();
+      pollAllInstances();
+    }
+
+    function bulkAddInstances() {
+      const text = document.getElementById('bulkAdd').value.trim();
+      if (!text) { toast('Cole as instancias no formato telefone,token', 'error'); return; }
+
+      const lines = text.split('\n').filter(l => l.trim());
+      let added = 0;
+      for (const line of lines) {
+        const parts = line.split(',').map(s => s.trim());
+        if (parts.length < 2) continue;
+        const [phone, token] = parts;
+        if (!phone || !token) continue;
+        if (instances.find(i => i.phone === phone)) continue;
+
+        instances.push({
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + added,
+          phone, token, status: 'unknown', addedAt: new Date().toISOString()
+        });
+        previousStatuses[instances[instances.length - 1].id] = 'unknown';
+        added++;
+      }
+
+      localStorage.setItem('wpp_instances', JSON.stringify(instances));
+      document.getElementById('bulkAdd').value = '';
+      toast(`${added} instancia(s) adicionada(s)`, 'success');
+      addLogEntry(`${added} instancias importadas em lote`);
+      loadAlertConfig();
+      renderMonitor();
+      pollAllInstances();
+    }
 
     // ---- Alert Config ----
     function loadAlertConfig() {
@@ -593,6 +667,7 @@
               <div class="monitor-meta">Ultimo check: ${lastCheck}</div>
             </div>
             <span class="monitor-status ${inst.status}">${statusLabel[inst.status] || inst.status}</span>
+            <button onclick="removeInstance('${inst.id}')" style="background:none;border:none;color:#4a5d7a;cursor:pointer;font-size:16px;padding:4px 8px" title="Remover">&times;</button>
           </div>
         `;
       }).join('');
@@ -604,6 +679,18 @@
       if (clean.length === 13) return `+${clean.slice(0,2)} (${clean.slice(2,4)}) ${clean.slice(4,9)}-${clean.slice(9)}`;
       if (clean.length === 12) return `+${clean.slice(0,2)} (${clean.slice(2,4)}) ${clean.slice(4,8)}-${clean.slice(8)}`;
       return phone;
+    }
+
+    function removeInstance(id) {
+      const inst = instances.find(i => i.id === id);
+      if (!inst) return;
+      instances = instances.filter(i => i.id !== id);
+      delete previousStatuses[id];
+      localStorage.setItem('wpp_instances', JSON.stringify(instances));
+      toast(`Instancia ${formatPhone(inst.phone)} removida`, 'info');
+      addLogEntry(`Instancia ${formatPhone(inst.phone)} removida do monitor`);
+      loadAlertConfig();
+      renderMonitor();
     }
 
     function toast(msg, type = 'info') {
