@@ -620,34 +620,41 @@
       const now = new Date();
       document.getElementById('lastCheckLabel').textContent = `Ultimo check: ${now.toLocaleTimeString('pt-BR')}`;
 
-      for (const inst of instances) {
-        try {
-          const res = await fetch(`${API_BASE_URL}/instance/status`, {
-            method: 'GET',
-            headers: { 'Authorization': `Bearer ${inst.token}` }
-          });
+      if (!adminToken) {
+        addLogEntry('Polling ignorado: admin token nao configurado', 'alert-fail');
+        return;
+      }
 
-          const data = await res.json();
-          let newStatus;
+      try {
+        const res = await fetch(`${API_BASE_URL}/instance/all`, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json', 'AdminToken': adminToken }
+        });
 
-          // uazapi response: { instance: { status, ... }, status: { connected, loggedIn, ... } }
-          if (data.status?.connected || data.instance?.status === 'connected') {
-            newStatus = 'connected';
-          } else if (data.instance?.status === 'connecting') {
-            newStatus = 'connecting';
-          } else {
-            newStatus = 'disconnected';
-          }
+        if (!res.ok) {
+          addLogEntry(`Erro ao buscar status: ${res.status}`, 'alert-fail');
+          return;
+        }
 
-          // Update instance name/profile if available
-          if (data.instance?.profileName) {
-            inst.profileName = data.instance.profileName;
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : (data.instances || data.data || []);
+
+        for (const apiInst of list) {
+          const phone = apiInst.phone || apiInst.jid?.replace(/@.*/, '') || apiInst.name || apiInst.id;
+          const inst = instances.find(i => i.phone === phone || i.id === apiInst.id || i.profileName === apiInst.name);
+          if (!inst) continue;
+
+          const newStatus = apiInst.status === 'connected' ? 'connected' :
+                           apiInst.status === 'connecting' ? 'connecting' : 'disconnected';
+
+          if (apiInst.profileName || apiInst.name) {
+            inst.profileName = apiInst.profileName || apiInst.name;
           }
 
           const oldStatus = previousStatuses[inst.id] || 'unknown';
 
           if (oldStatus !== newStatus && oldStatus !== 'unknown') {
-            const statusLabels = { connected: 'Conectado', disconnected: 'Desconectado', error: 'Erro' };
+            const statusLabels = { connected: 'Conectado', disconnected: 'Desconectado', connecting: 'Conectando', error: 'Erro' };
             const msg = `${formatPhone(inst.phone)}: ${statusLabels[oldStatus] || oldStatus} -> ${statusLabels[newStatus] || newStatus}`;
             addLogEntry(msg);
 
@@ -658,20 +665,12 @@
           previousStatuses[inst.id] = newStatus;
           inst.status = newStatus;
           inst.lastCheck = now.toISOString();
-
-        } catch (err) {
-          const oldStatus = previousStatuses[inst.id];
-          if (oldStatus !== 'error' && oldStatus !== 'unknown') {
-            addLogEntry(`${formatPhone(inst.phone)}: Erro ao verificar - ${err.message}`);
-            sendWhatsAppAlert(`[WhatsApp Conector]\n\nErro ao verificar instancia ${formatPhone(inst.phone)}: ${err.message}\n\nHorario: ${now.toLocaleString('pt-BR')}`);
-          }
-          previousStatuses[inst.id] = 'error';
-          inst.status = 'error';
-          inst.lastCheck = now.toISOString();
         }
+
+      } catch (err) {
+        addLogEntry(`Erro no polling: ${err.message}`, 'alert-fail');
       }
 
-      // Save updated statuses back
       localStorage.setItem('wpp_instances', JSON.stringify(instances));
       renderMonitor();
     }
