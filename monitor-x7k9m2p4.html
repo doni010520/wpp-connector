@@ -314,20 +314,6 @@
       </div>
     </div>
 
-    <!-- API Config -->
-    <div class="config-section">
-      <h2>Token da API (Admin)</h2>
-      <div class="config-row">
-        <div class="config-group" style="flex:2">
-          <label>Token para listar instancias</label>
-          <input type="text" id="adminToken" placeholder="Token admin da uazapi" />
-        </div>
-        <button class="btn btn-outline" onclick="saveAdminToken()">Salvar</button>
-        <button class="btn btn-outline" onclick="fetchInstancesFromAPI()">Buscar Instancias</button>
-      </div>
-      <div style="font-size:11px;color:#4a5d7a;margin-top:8px" id="apiSourceLabel">Fonte: localStorage</div>
-    </div>
-
     <!-- Alert Config -->
     <div class="config-section">
       <h2>Configuracao de Alertas</h2>
@@ -385,95 +371,12 @@
     let previousStatuses = {};
     let alertConfig = JSON.parse(localStorage.getItem('wpp_alert_config') || '{}');
     let eventLog = JSON.parse(localStorage.getItem('wpp_event_log') || '[]');
-    let adminToken = localStorage.getItem('wpp_admin_token') || '';
     let monitorInterval = null;
-    let instanceSource = 'localStorage';
 
     // ---- Init previous statuses from current data ----
     instances.forEach(inst => {
       previousStatuses[inst.id] = inst.status;
     });
-
-    // ---- Admin Token ----
-    document.getElementById('adminToken').value = adminToken;
-
-    function saveAdminToken() {
-      adminToken = document.getElementById('adminToken').value.trim();
-      localStorage.setItem('wpp_admin_token', adminToken);
-      toast('Token admin salvo', 'success');
-    }
-
-    // ---- Fetch from API ----
-    async function fetchInstancesFromAPI() {
-      if (!adminToken) {
-        toast('Configure o token admin primeiro', 'error');
-        return;
-      }
-
-      const endpoints = [
-        { url: `${API_BASE_URL}/instance/list`, method: 'GET' },
-        { url: `${API_BASE_URL}/admin/users`, method: 'GET' },
-        { url: `${API_BASE_URL}/instances`, method: 'GET' },
-        { url: `${API_BASE_URL}/instance/listInstances`, method: 'GET' },
-      ];
-
-      for (const ep of endpoints) {
-        try {
-          const res = await fetch(ep.url, {
-            method: ep.method,
-            headers: {
-              'Authorization': `Bearer ${adminToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (!res.ok) continue;
-
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : (data.instances || data.data || data.users || []);
-
-          if (!Array.isArray(list) || list.length === 0) continue;
-
-          // Map API response to our instance format
-          instances = list.map((item, idx) => {
-            const phone = item.phone || item.jid?.replace(/@.*/, '') || item.name || item.instance || `instancia-${idx + 1}`;
-            const token = item.token || item.apikey || item.key || adminToken;
-            const connected = item.connected || item.status === 'connected' || item.status === 'CONNECTED' || item.state === 'open';
-            const existing = instances.find(i => i.phone === phone);
-
-            return {
-              id: existing?.id || Date.now().toString(36) + idx,
-              phone: phone,
-              token: token,
-              status: connected ? 'connected' : 'disconnected',
-              lastCheck: new Date().toISOString(),
-              addedAt: existing?.addedAt || new Date().toISOString()
-            };
-          });
-
-          // Save to localStorage so main page also sees them
-          localStorage.setItem('wpp_instances', JSON.stringify(instances));
-          instanceSource = ep.url;
-          document.getElementById('apiSourceLabel').textContent = `Fonte: API (${ep.url}) - ${instances.length} instancias`;
-
-          // Reset previous statuses
-          previousStatuses = {};
-          instances.forEach(inst => { previousStatuses[inst.id] = inst.status; });
-
-          loadAlertConfig();
-          renderMonitor();
-          toast(`${instances.length} instancias carregadas da API`, 'success');
-          addLogEntry(`${instances.length} instancias carregadas de ${ep.url}`);
-          return;
-
-        } catch (_) {
-          continue;
-        }
-      }
-
-      toast('Nenhum endpoint de listagem encontrado. Usando localStorage.', 'error');
-      addLogEntry('Falha ao buscar instancias da API - usando localStorage', 'alert-fail');
-    }
 
     // ---- Alert Config ----
     function loadAlertConfig() {
@@ -566,10 +469,18 @@
           const data = await res.json();
           let newStatus;
 
-          if (data.connected || data.status === 'connected' || data.status === 'CONNECTED' || data.state === 'open') {
+          // uazapi response: { instance: { status, ... }, status: { connected, loggedIn, ... } }
+          if (data.status?.connected || data.instance?.status === 'connected') {
             newStatus = 'connected';
+          } else if (data.instance?.status === 'connecting') {
+            newStatus = 'connecting';
           } else {
             newStatus = 'disconnected';
+          }
+
+          // Update instance name/profile if available
+          if (data.instance?.profileName) {
+            inst.profileName = data.instance.profileName;
           }
 
           const oldStatus = previousStatuses[inst.id] || 'unknown';
@@ -673,11 +584,12 @@
 
       grid.innerHTML = instances.map(inst => {
         const lastCheck = inst.lastCheck ? new Date(inst.lastCheck).toLocaleTimeString('pt-BR') : '--';
+        const profile = inst.profileName ? ` - ${inst.profileName}` : '';
         return `
           <div class="monitor-card">
             <div class="status-dot ${inst.status}"></div>
             <div class="monitor-info">
-              <div class="monitor-phone">${formatPhone(inst.phone)}</div>
+              <div class="monitor-phone">${formatPhone(inst.phone)}${profile}</div>
               <div class="monitor-meta">Ultimo check: ${lastCheck}</div>
             </div>
             <span class="monitor-status ${inst.status}">${statusLabel[inst.status] || inst.status}</span>
