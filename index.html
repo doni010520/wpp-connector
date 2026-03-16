@@ -328,6 +328,7 @@
         });
 
         const data = await res.json();
+        console.log('API /instance/connect response:', JSON.stringify(data, null, 2));
 
         if (!res.ok) {
           throw new Error(data.message || data.error || `Erro HTTP ${res.status}`);
@@ -339,8 +340,9 @@
           return;
         }
 
-        // Pairing code?
-        const code = data.pairingCode || data.pairing_code || data.code || null;
+        // Pairing code? Search all possible field names
+        const code = data.pairingCode || data.pairing_code || data.code
+          || data.PairingCode || data.pairingcode || null;
         if (code) {
           currentMode = 'pairing';
           showPairingCode(code, phone);
@@ -349,7 +351,8 @@
         }
 
         // QR Code?
-        const qr = data.qrcode || data.qr || data.qrCode || data.base64 || null;
+        const qr = data.qrcode || data.qr || data.qrCode || data.QRCode
+          || data.base64 || data.qr_code || null;
         if (qr) {
           currentMode = 'qr';
           showQRCode(qr);
@@ -357,9 +360,9 @@
           return;
         }
 
-        // Unknown response — start polling anyway
+        // Unknown response — show the raw response so user can report
         currentMode = 'pairing';
-        showWaiting();
+        showUnknownResponse(data);
         startStatusPolling(token, phone);
 
       } catch (err) {
@@ -417,13 +420,15 @@
       startCountdown(QR_TIMEOUT);
     }
 
-    function showWaiting() {
+    function showUnknownResponse(data) {
       document.getElementById('formSection').style.display = 'none';
       const result = document.getElementById('resultSection');
       result.classList.add('active');
 
+      const json = JSON.stringify(data, null, 2);
       document.getElementById('resultContent').innerHTML = `
-        <div class="result-status"><span class="spinner"></span> Aguardando resposta da API...</div>
+        <div class="result-status">Resposta da API (formato nao reconhecido):</div>
+        <pre style="text-align:left;background:#081222;padding:16px;border-radius:8px;font-size:12px;color:#7eb8ff;overflow-x:auto;max-height:300px;border:1px solid #1a3a6e">${json}</pre>
       `;
 
       startCountdown(PAIRING_TIMEOUT);
