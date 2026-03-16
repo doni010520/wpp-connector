@@ -325,15 +325,18 @@
           throw new Error(data.message || data.error || `Erro HTTP ${res.status}`);
         }
 
+        // API returns data inside "instance" object
+        const inst = data.instance || data;
+
         // Already connected?
-        if (data.connected || data.status === 'connected') {
+        if (data.connected || inst.status === 'connected') {
           showSuccess(phone || 'Instancia');
           return;
         }
 
-        // Pairing code? Search all possible field names
-        const code = data.pairingCode || data.pairing_code || data.code
-          || data.PairingCode || data.pairingcode || null;
+        // Pairing code?
+        const code = inst.paircode || inst.pairingCode || inst.pairing_code
+          || inst.code || data.paircode || data.pairingCode || data.code || null;
         if (code) {
           currentMode = 'pairing';
           showPairingCode(code, phone);
@@ -342,8 +345,8 @@
         }
 
         // QR Code?
-        const qr = data.qrcode || data.qr || data.qrCode || data.QRCode
-          || data.base64 || data.qr_code || null;
+        const qr = inst.qrcode || inst.qr || inst.qrCode
+          || data.qrcode || data.qr || data.qrCode || null;
         if (qr) {
           currentMode = 'qr';
           showQRCode(qr);
